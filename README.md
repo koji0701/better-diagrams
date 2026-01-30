@@ -4,6 +4,30 @@ MCP server that helps LLMs create clean ASCII diagrams.
 
 ## Architecture
 
+```
+                        ┌──────────────────────┐
+                        │      LLM Client      │
+                        │ (Claude Code/Cursor) │
+                        └──────────────────────┘
+                                    │
+                                    │
+                                    ▼
+                            ┌──────────────┐
+                            │  MCP Server  │
+                            │  (index.ts)  │
+                            └──────────────┘
+                                    │
+          ┌─────────────────────────│───────────────────────┐───────────────────┐
+          ▼                         ▼                       ▼                   ▼
+┌──────────────────┐       ┌────────────────┐       ┌──────────────┐    ┌──────────────┐
+│ mermaid_to_ascii │       │ create_diagram │       │ refine_ascii │    │ edit_diagram │
+│ Convert Mermaid  │       │ JSON to ASCII  │       │  Fix broken  │    │  Update box  │
+│     to ASCII     │       │  box diagrams  │       │   diagrams   │    │   contents   │
+└──────────────────┘       └────────────────┘       └──────────────┘    └──────────────┘
+```
+
+The better-diagrams MCP server exposes four tools that LLM clients can use to create and manipulate ASCII diagrams. The server communicates via the Model Context Protocol (MCP) using stdio transport.
+
 ## Installation
 
 ### Claude Code
