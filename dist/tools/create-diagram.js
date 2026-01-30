@@ -3,7 +3,8 @@
  * Supports multi-segment arrow routing for converging connections
  */
 function renderBox(label, minWidth = 12) {
-    const lines = label.split("\\n");
+    // Handle both actual newlines and escaped \n sequences
+    const lines = label.split(/\\n|\n/).filter(l => l.length > 0 || label.length === 0);
     const width = Math.max(minWidth, ...lines.map((l) => l.length)) + 2;
     const result = [];
     result.push("┌" + "─".repeat(width) + "┐");
@@ -15,25 +16,6 @@ function renderBox(label, minWidth = 12) {
     }
     result.push("└" + "─".repeat(width) + "┘");
     return result;
-}
-// Character priority for overlapping connections
-function mergeChar(existing, newChar) {
-    if (existing === " ")
-        return newChar;
-    // Junction handling: vertical + horizontal = cross
-    if ((existing === "│" && newChar === "─") || (existing === "─" && newChar === "│")) {
-        return "┼";
-    }
-    // Corner merging with crossing lines
-    if (existing === "│" && ["└", "┘", "┌", "┐"].includes(newChar))
-        return newChar;
-    if (existing === "─" && ["└", "┘", "┌", "┐"].includes(newChar))
-        return newChar;
-    // Arrow head takes priority
-    if (newChar === "▼" || newChar === "▲")
-        return newChar;
-    // Keep existing if it's more complex
-    return existing;
 }
 export function createDiagram(boxes, connections, title) {
     if (!boxes || boxes.length === 0) {
@@ -92,80 +74,83 @@ export function createDiagram(boxes, connections, title) {
     // Grid dimensions
     const totalWidth = colPositions[maxCol] + colWidths[maxCol];
     const totalHeight = rowPositions[maxRow] + rowHeights[maxRow];
-    // Initialize character grid
+    // Initialize character grid and occupation tracking
     const grid = [];
+    const occupied = [];
     for (let y = 0; y < totalHeight; y++) {
         grid[y] = Array(totalWidth).fill(" ");
+        occupied[y] = Array(totalWidth).fill(false);
     }
-    // Draw boxes first
+    // Draw boxes first and mark cells as occupied
     for (const box of positioned) {
         const startY = rowPositions[box.row];
         for (let lineIdx = 0; lineIdx < box.lines.length; lineIdx++) {
             const line = box.lines[lineIdx];
             for (let charIdx = 0; charIdx < line.length; charIdx++) {
-                grid[startY + lineIdx][box.startX + charIdx] = line[charIdx];
+                const y = startY + lineIdx;
+                const x = box.startX + charIdx;
+                grid[y][x] = line[charIdx];
+                occupied[y][x] = true;
             }
         }
     }
-    // Helper to safely set grid cell with merging
+    // Helper to safely set grid cell (only if not occupied by a box)
     const setCell = (y, x, char) => {
-        if (y >= 0 && y < grid.length && x >= 0 && x < grid[y].length) {
-            grid[y][x] = mergeChar(grid[y][x], char);
+        if (y >= 0 && y < grid.length && x >= 0 && x < grid[y].length && !occupied[y][x]) {
+            // Only merge with other connection chars
+            const existing = grid[y][x];
+            if (existing === " ") {
+                grid[y][x] = char;
+            }
+            else if ((existing === "│" && char === "─") || (existing === "─" && char === "│")) {
+                grid[y][x] = "┼";
+            }
+            else if (char === "▼" || char === "▲") {
+                grid[y][x] = char;
+            }
         }
     };
     // Draw connections
     if (connections && connections.length > 0) {
-        // Group connections by source row to target row for smarter routing
-        const connGroups = new Map();
         for (const conn of connections) {
             const fromBox = positioned.find((b) => b.id === conn.from);
             const toBox = positioned.find((b) => b.id === conn.to);
             if (!fromBox || !toBox || fromBox.row >= toBox.row)
                 continue;
-            const key = `${fromBox.row}-${toBox.row}`;
-            if (!connGroups.has(key))
-                connGroups.set(key, []);
-            connGroups.get(key).push(conn);
-        }
-        for (const [, group] of connGroups) {
-            for (const conn of group) {
-                const fromBox = positioned.find((b) => b.id === conn.from);
-                const toBox = positioned.find((b) => b.id === conn.to);
-                const fromY = rowPositions[fromBox.row] + fromBox.height;
-                const toY = rowPositions[toBox.row] - 1;
-                const fromX = fromBox.centerX;
-                const toX = toBox.centerX;
-                if (fromX === toX) {
-                    // Simple vertical connection
-                    for (let y = fromY; y <= toY; y++) {
-                        setCell(y, fromX, y === toY ? "▼" : "│");
+            const fromY = rowPositions[fromBox.row] + fromBox.height;
+            const toY = rowPositions[toBox.row] - 1;
+            const fromX = fromBox.centerX;
+            const toX = toBox.centerX;
+            if (fromX === toX) {
+                // Simple vertical connection
+                for (let y = fromY; y <= toY; y++) {
+                    setCell(y, fromX, y === toY ? "▼" : "│");
+                }
+            }
+            else {
+                // L-shaped routing
+                const turnY = fromY + 1;
+                // Vertical down from source
+                for (let y = fromY; y <= turnY; y++) {
+                    setCell(y, fromX, "│");
+                }
+                // Horizontal segment with proper corners
+                const minX = Math.min(fromX, toX);
+                const maxX = Math.max(fromX, toX);
+                for (let x = minX; x <= maxX; x++) {
+                    if (x === fromX) {
+                        setCell(turnY, x, fromX < toX ? "└" : "┘");
+                    }
+                    else if (x === toX) {
+                        setCell(turnY, x, fromX < toX ? "┐" : "┌");
+                    }
+                    else {
+                        setCell(turnY, x, "─");
                     }
                 }
-                else {
-                    // L-shaped routing
-                    const turnY = fromY + 1;
-                    // Vertical down from source
-                    for (let y = fromY; y <= turnY; y++) {
-                        setCell(y, fromX, "│");
-                    }
-                    // Horizontal segment with proper corners
-                    const minX = Math.min(fromX, toX);
-                    const maxX = Math.max(fromX, toX);
-                    for (let x = minX; x <= maxX; x++) {
-                        if (x === fromX) {
-                            setCell(turnY, x, fromX < toX ? "└" : "┘");
-                        }
-                        else if (x === toX) {
-                            setCell(turnY, x, fromX < toX ? "┐" : "┌");
-                        }
-                        else {
-                            setCell(turnY, x, "─");
-                        }
-                    }
-                    // Vertical down to target
-                    for (let y = turnY + 1; y <= toY; y++) {
-                        setCell(y, toX, y === toY ? "▼" : "│");
-                    }
+                // Vertical down to target
+                for (let y = turnY + 1; y <= toY; y++) {
+                    setCell(y, toX, y === toY ? "▼" : "│");
                 }
             }
         }
