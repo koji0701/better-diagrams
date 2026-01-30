@@ -1,6 +1,6 @@
 {
     "name": "better-diagrams",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "description": "MCP server that helps LLMs create clean ASCII diagrams from Mermaid or structured input",
     "type": "module",
     "main": "dist/index.js",
