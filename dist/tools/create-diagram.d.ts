@@ -1,5 +1,6 @@
 /**
  * Create ASCII diagrams from structured JSON input
+ * Supports multi-segment arrow routing for converging connections
  */
 interface Box {
     id: string;
