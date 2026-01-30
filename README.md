@@ -2,6 +2,8 @@
 
 MCP server that helps LLMs create clean ASCII diagrams.
 
+On npm: https://www.npmjs.com/package/better-diagrams
+
 ## Architecture
 
 ```
