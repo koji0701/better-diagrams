@@ -1,5 +1,6 @@
 /**
  * Create ASCII diagrams from structured JSON input
+ * Supports multi-segment arrow routing for converging connections
  */
 
 interface Box {
@@ -22,6 +23,8 @@ interface RenderedBox {
     height: number;
     row: number;
     col: number;
+    startX: number;
+    centerX: number;
 }
 
 function renderBox(label: string, minWidth = 12): string[] {
@@ -42,6 +45,26 @@ function renderBox(label: string, minWidth = 12): string[] {
     return result;
 }
 
+// Character priority for overlapping connections
+function mergeChar(existing: string, newChar: string): string {
+    if (existing === " ") return newChar;
+
+    // Junction handling: vertical + horizontal = cross
+    if ((existing === "│" && newChar === "─") || (existing === "─" && newChar === "│")) {
+        return "┼";
+    }
+
+    // Corner merging with crossing lines
+    if (existing === "│" && ["└", "┘", "┌", "┐"].includes(newChar)) return newChar;
+    if (existing === "─" && ["└", "┘", "┌", "┐"].includes(newChar)) return newChar;
+
+    // Arrow head takes priority
+    if (newChar === "▼" || newChar === "▲") return newChar;
+
+    // Keep existing if it's more complex
+    return existing;
+}
+
 export function createDiagram(
     boxes: Box[],
     connections?: Connection[],
@@ -54,7 +77,6 @@ export function createDiagram(
     // Assign positions if not provided
     const positioned: RenderedBox[] = [];
     let autoRow = 0;
-    let autoCol = 0;
 
     for (const box of boxes) {
         const lines = renderBox(box.label);
@@ -64,10 +86,10 @@ export function createDiagram(
             width: lines[0].length,
             height: lines.length,
             row: box.row ?? autoRow,
-            col: box.col ?? autoCol,
+            col: box.col ?? 0,
+            startX: 0,
+            centerX: 0,
         });
-
-        // Auto-increment position
         autoRow++;
     }
 
@@ -84,80 +106,137 @@ export function createDiagram(
         rowHeights[box.row] = Math.max(rowHeights[box.row], box.height);
     }
 
-    // Add spacing for connections
     const colSpacing = 4;
-    const rowSpacing = 2;
+    const rowSpacing = 3;
 
-    // Build output grid
+    // Calculate absolute X positions
+    let currentX = 0;
+    const colPositions: number[] = [];
+    for (let col = 0; col <= maxCol; col++) {
+        colPositions[col] = currentX;
+        currentX += colWidths[col] + colSpacing;
+    }
+
+    // Set positions for each box
+    for (const box of positioned) {
+        const colStart = colPositions[box.col];
+        const colWidth = colWidths[box.col];
+        box.startX = colStart + Math.floor((colWidth - box.width) / 2);
+        box.centerX = box.startX + Math.floor(box.width / 2);
+    }
+
+    // Calculate row Y positions
+    const rowPositions: number[] = [];
+    let currentY = 0;
+    for (let row = 0; row <= maxRow; row++) {
+        rowPositions[row] = currentY;
+        currentY += rowHeights[row] + rowSpacing;
+    }
+
+    // Grid dimensions
+    const totalWidth = colPositions[maxCol] + colWidths[maxCol];
+    const totalHeight = rowPositions[maxRow] + rowHeights[maxRow];
+
+    // Initialize character grid
+    const grid: string[][] = [];
+    for (let y = 0; y < totalHeight; y++) {
+        grid[y] = Array(totalWidth).fill(" ");
+    }
+
+    // Draw boxes first
+    for (const box of positioned) {
+        const startY = rowPositions[box.row];
+        for (let lineIdx = 0; lineIdx < box.lines.length; lineIdx++) {
+            const line = box.lines[lineIdx];
+            for (let charIdx = 0; charIdx < line.length; charIdx++) {
+                grid[startY + lineIdx][box.startX + charIdx] = line[charIdx];
+            }
+        }
+    }
+
+    // Helper to safely set grid cell with merging
+    const setCell = (y: number, x: number, char: string) => {
+        if (y >= 0 && y < grid.length && x >= 0 && x < grid[y].length) {
+            grid[y][x] = mergeChar(grid[y][x], char);
+        }
+    };
+
+    // Draw connections
+    if (connections && connections.length > 0) {
+        // Group connections by source row to target row for smarter routing
+        const connGroups = new Map<string, typeof connections>();
+
+        for (const conn of connections) {
+            const fromBox = positioned.find((b) => b.id === conn.from);
+            const toBox = positioned.find((b) => b.id === conn.to);
+            if (!fromBox || !toBox || fromBox.row >= toBox.row) continue;
+
+            const key = `${fromBox.row}-${toBox.row}`;
+            if (!connGroups.has(key)) connGroups.set(key, []);
+            connGroups.get(key)!.push(conn);
+        }
+
+        for (const [, group] of connGroups) {
+            for (const conn of group) {
+                const fromBox = positioned.find((b) => b.id === conn.from)!;
+                const toBox = positioned.find((b) => b.id === conn.to)!;
+
+                const fromY = rowPositions[fromBox.row] + fromBox.height;
+                const toY = rowPositions[toBox.row] - 1;
+                const fromX = fromBox.centerX;
+                const toX = toBox.centerX;
+
+                if (fromX === toX) {
+                    // Simple vertical connection
+                    for (let y = fromY; y <= toY; y++) {
+                        setCell(y, fromX, y === toY ? "▼" : "│");
+                    }
+                } else {
+                    // L-shaped routing
+                    const turnY = fromY + 1;
+
+                    // Vertical down from source
+                    for (let y = fromY; y <= turnY; y++) {
+                        setCell(y, fromX, "│");
+                    }
+
+                    // Horizontal segment with proper corners
+                    const minX = Math.min(fromX, toX);
+                    const maxX = Math.max(fromX, toX);
+
+                    for (let x = minX; x <= maxX; x++) {
+                        if (x === fromX) {
+                            setCell(turnY, x, fromX < toX ? "└" : "┘");
+                        } else if (x === toX) {
+                            setCell(turnY, x, fromX < toX ? "┐" : "┌");
+                        } else {
+                            setCell(turnY, x, "─");
+                        }
+                    }
+
+                    // Vertical down to target
+                    for (let y = turnY + 1; y <= toY; y++) {
+                        setCell(y, toX, y === toY ? "▼" : "│");
+                    }
+                }
+            }
+        }
+    }
+
+    // Build output
     const output: string[] = [];
-
-    // Add title if provided
     if (title) {
         output.push(title);
         output.push("");
     }
 
-    // Render row by row
-    for (let row = 0; row <= maxRow; row++) {
-        const rowBoxes = positioned.filter((b) => b.row === row);
-        const rowHeight = rowHeights[row];
+    for (const row of grid) {
+        output.push(row.join("").trimEnd());
+    }
 
-        // Render each line of this row
-        for (let lineIdx = 0; lineIdx < rowHeight; lineIdx++) {
-            let line = "";
-
-            for (let col = 0; col <= maxCol; col++) {
-                const box = rowBoxes.find((b) => b.col === col);
-
-                if (box && lineIdx < box.lines.length) {
-                    const padding = colWidths[col] - box.width;
-                    line += box.lines[lineIdx] + " ".repeat(padding + colSpacing);
-                } else {
-                    line += " ".repeat(colWidths[col] + colSpacing);
-                }
-            }
-
-            output.push(line.trimEnd());
-        }
-
-        // Add connection arrows between rows
-        if (row < maxRow && connections) {
-            const rowConnections = connections.filter((c) => {
-                const fromBox = positioned.find((b) => b.id === c.from);
-                const toBox = positioned.find((b) => b.id === c.to);
-                return fromBox && toBox && fromBox.row === row && toBox.row === row + 1;
-            });
-
-            if (rowConnections.length > 0) {
-                // Add vertical connectors
-                for (let i = 0; i < rowSpacing; i++) {
-                    let connLine = "";
-                    for (let col = 0; col <= maxCol; col++) {
-                        const hasConnection = rowConnections.some((c) => {
-                            const fromBox = positioned.find((b) => b.id === c.from);
-                            return fromBox?.col === col;
-                        });
-
-                        if (hasConnection) {
-                            const boxWidth = colWidths[col];
-                            const midPoint = Math.floor(boxWidth / 2);
-                            connLine +=
-                                " ".repeat(midPoint) +
-                                (i === rowSpacing - 1 ? "▼" : "│") +
-                                " ".repeat(boxWidth - midPoint - 1 + colSpacing);
-                        } else {
-                            connLine += " ".repeat(colWidths[col] + colSpacing);
-                        }
-                    }
-                    output.push(connLine.trimEnd());
-                }
-            } else {
-                // Empty spacing
-                for (let i = 0; i < rowSpacing; i++) {
-                    output.push("");
-                }
-            }
-        }
+    // Remove trailing empty lines
+    while (output.length > 0 && output[output.length - 1] === "") {
+        output.pop();
     }
 
     return output.join("\n");

@@ -6,13 +6,14 @@ MCP server that helps LLMs create clean ASCII diagrams.
 
 ### Claude Code
 ```bash
-npx better-diagrams setup
+claude mcp add better-diagrams -- npx -y better-diagrams
 ```
 
-Or manually add to `~/.config/claude/claude_desktop_config.json`:
+### Cursor
+Add to `~/.cursor/mcp.json`:
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "better-diagrams": {
       "command": "npx",
       "args": ["-y", "better-diagrams"]
@@ -20,9 +21,6 @@ Or manually add to `~/.config/claude/claude_desktop_config.json`:
   }
 }
 ```
-
-### Cursor
-Add to your MCP server configuration with the same command.
 
 ## Tools
 
