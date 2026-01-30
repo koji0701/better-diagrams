@@ -2,6 +2,8 @@
 
 MCP server that helps LLMs create clean ASCII diagrams.
 
+## Architecture
+
 ## Installation
 
 ### Claude Code
