@@ -1,0 +1,43 @@
+{
+    "name": "better-diagrams",
+    "version": "0.1.0",
+    "description": "MCP server that helps LLMs create clean ASCII diagrams from Mermaid or structured input",
+    "type": "module",
+    "main": "dist/index.js",
+    "bin": {
+        "better-diagrams": "./dist/bin/cli.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch",
+        "start": "node dist/index.js",
+        "test": "vitest run",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "mcp",
+        "model-context-protocol",
+        "ascii",
+        "diagrams",
+        "mermaid",
+        "claude",
+        "cursor",
+        "llm"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0",
+        "vitest": "^1.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "files": [
+        "dist"
+    ]
+}
